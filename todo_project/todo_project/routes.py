@@ -1,6 +1,7 @@
 from flask import render_template, url_for, flash, redirect, request
 import logging
 from logging.handlers import SysLogHandler
+import os
 
 from todo_project import app, db, bcrypt
 
@@ -14,8 +15,13 @@ from todo_project.models import User, Task
 # Import 
 from flask_login import login_required, current_user, login_user, logout_user
 
-# Configuração do manipulador de logs para o Syslog do Linux
-syslog_handler = SysLogHandler(address='/dev/log')
+# --- CONFIGURAÇÃO DE LOGS INTELIGENTE MULTIPLATAFORMA ---
+# Se estiver no Linux, usa o /dev/log. Se estiver no Windows, joga no console/terminal.
+if os.name == 'nt': # 'nt' indica Windows
+    syslog_handler = logging.StreamHandler()
+else: # caindo nesse 'else', assumimos que é um sistema tipo Unix (Linux/Mac) com suporte a /dev/log
+    syslog_handler = SysLogHandler(address='/dev/log')
+
 syslog_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - TaskManagerApp - %(levelname)s - %(message)s')
 syslog_handler.setFormatter(formatter)

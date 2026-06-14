@@ -1,4 +1,6 @@
 from flask import render_template, url_for, flash, redirect, request
+import logging
+from logging.handlers import SysLogHandler
 
 from todo_project import app, db, bcrypt
 
@@ -12,6 +14,12 @@ from todo_project.models import User, Task
 # Import 
 from flask_login import login_required, current_user, login_user, logout_user
 
+# Configuração do manipulador de logs para o Syslog do Linux
+syslog_handler = SysLogHandler(address='/dev/log')
+syslog_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - TaskManagerApp - %(levelname)s - %(message)s')
+syslog_handler.setFormatter(formatter)
+app.logger.addHandler(syslog_handler)
 
 @app.errorhandler(404)
 def error_404(error):
@@ -38,16 +46,17 @@ def login():
         return redirect(url_for('all_tasks'))
 
     form = LoginForm()
-    # After you submit the form
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
-        # Check if the user exists and the password is valid
         if user and bcrypt.check_password_hash(user.password, form.password.data):
             login_user(user)
-            task_form = TaskForm()
+            # REQUISITO EXIGIDO: Log de sucesso no Syslog
+            app.logger.info(f"AUTENTICACAO_SUCESSO: Usuario '{user.username}' realizou login.")
             flash('Login Successfull', 'success')
             return redirect(url_for('all_tasks'))
         else:
+            # REQUISITO EXIGIDO: Log de falha no Syslog
+            app.logger.warning(f"AUTENTICACAO_FALHA: Tentativa de login invalida para o usuario '{form.username.data}'.")
             flash('Login Unsuccessful. Please check Username Or Password', 'danger')
     
     return render_template('login.html', title='Login', form=form)
@@ -100,11 +109,18 @@ def add_task():
 @login_required
 def update_task(task_id):
     task = Task.query.get_or_404(task_id)
+    
+    # REQUISITO EXTRA DE SEGURANÇA: Bloqueia manipulação indevida de ID
+    if task.author != current_user:
+        app.logger.error(f"VIOLACAO_SEGURANCA: Usuario '{current_user.username}' tentou alterar a tarefa ID {task_id} pertencente a outro usuario.")
+        return (render_template('errors/403.html'), 403)
+
     form = UpdateTaskForm()
     if form.validate_on_submit():
         if form.task_name.data != task.content:
             task.content = form.task_name.data
             db.session.commit()
+            app.logger.info(f"ATIVIDADE: Usuario '{current_user.username}' atualizou a tarefa ID {task_id}.")
             flash('Task Updated', 'success')
             return redirect(url_for('all_tasks'))
         else:
@@ -119,8 +135,15 @@ def update_task(task_id):
 @login_required
 def delete_task(task_id):
     task = Task.query.get_or_404(task_id)
+    
+    # REQUISITO EXTRA DE SEGURANÇA: Bloqueia deleção indevida de ID
+    if task.author != current_user:
+        app.logger.error(f"VIOLACAO_SEGURANCA: Usuario '{current_user.username}' tentou deletar a tarefa ID {task_id} pertencente a outro usuario.")
+        return (render_template('errors/403.html'), 403)
+
     db.session.delete(task)
     db.session.commit()
+    app.logger.info(f"ATIVIDADE: Usuario '{current_user.username}' removeu a tarefa ID {task_id}.")
     flash('Task Deleted', 'info')
     return redirect(url_for('all_tasks'))
 
